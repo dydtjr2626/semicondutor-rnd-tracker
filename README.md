@@ -3,7 +3,7 @@
 국내 반도체 소부장(소재·부품·장비) 12개사의 **매출 대비 R&D 투자 비중**을 DART 공시로 수집·분석해 Streamlit 대시보드로 보여 줍니다. (2023~2025, 12개사 × 3개년 = 36행)
 
 > 배포 링크: https://semicondutor-rnd-tracker-ivpokny3wutyfwkvnmcpia.streamlit.app/
-> 1페이지 요약: [summary_report.pdf](summary_report.pdf)
+> 리포트(5쪽): [summary_report.pdf](summary_report.pdf) — 운영 Q&A와 연간 업데이트 방법, 프로젝트 요약, AI 활용 과정
 
 ## 왜 만들었나 (지원 직무와의 연결)
 반도체 장비·공정 엔지니어로 일하려면 "장비 회사는 무엇에 돈을 쓰고, 그것이 소재·부품 회사와 어떻게 다른가"를 알아야 한다고 생각했습니다. 장비는 고객사의 새 공정에 맞춰 장비를 먼저 개발해야 하는 산업이라, R&D 투자 비중이 그 구조를 가장 잘 보여 주는 숫자라고 보았습니다. 그래서 공시 자료로 직접 숫자를 모으고, 숫자 뒤의 이유를 스스로 해석해 보았습니다.
@@ -87,7 +87,7 @@ streamlit run app.py
 ├── metrics.py             # 수동 R&D와 합쳐 비중 계산 -> master.csv
 ├── app.py                 # Streamlit 대시보드
 ├── insights.md            # 인사이트 메모
-├── summary_report.pdf     # 1페이지 요약 리포트
+├── summary_report.pdf     # 리포트 (운영 Q&A, 연간 업데이트, 요약, AI 활용 과정)
 ├── screenshot/            # 대시보드 탭별 화면 캡처
 └── data/
     ├── manual/rnd_manual.csv   # 사업보고서에서 직접 입력한 R&D
