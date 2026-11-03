@@ -136,7 +136,11 @@ def trend_chart(d, c):
     top = float(d["rnd_ratio"].max()) * 1.08
     unit = top / plot_px             # 1px이 나타내는 값(%)
     shown, count, ends = set(), {}, []
-    for label, s in d.sort_values("year").groupby("label", sort=False):
+    # 범례 순서가 다른 탭(장비 -> 부품·후공정 -> 소재)과 같아지도록 구분 순서대로 정렬해서 그린다
+    # (sorted는 같은 구분 안에서는 원래 순서를 그대로 유지한다)
+    by_company = sorted(d.sort_values("year").groupby("label", sort=False),
+                        key=lambda kv: GROUPS.index(kv[1]["group"].iloc[0]))
+    for label, s in by_company:
         g = s["group"].iloc[0]
         k = count.get(g, 0)
         count[g] = k + 1
@@ -332,9 +336,10 @@ def main():
             "기업": cc.Column(width=125), "공정": cc.Column(width=85), "연도": cc.Column(width=55),
             "매출(억원)": cc.NumberColumn(width=85, format="localized"),  # 10,097처럼 천 단위 쉼표
             "R&D(억원)": cc.NumberColumn(width=85, format="%.1f"),
-            "R&D 비중(%)": cc.NumberColumn(width=95, format="%.1f"),
-            "산출": cc.Column(width=65), "매출 YoY(%)": cc.Column(width=95),
-            "R&D YoY(%)": cc.Column(width=95), "중앙값 대비(%p)": cc.Column(width=115),
+            "R&D 비중(%)": cc.NumberColumn(width=85, format="%.1f"),
+            "산출": cc.Column(width=60), "매출 YoY(%)": cc.Column(width=85),
+            "R&D YoY(%)": cc.Column(width=85),
+            "중앙값 대비(%p)": cc.Column(),  # 너비를 정하지 않아 남는 칸을 채운다(오른쪽 끝이 잘리지 않게)
         }
         # 표 높이를 행 수에 맞춰 키워서 행이 중간에 잘리거나 안쪽 스크롤이 생기지 않게 한다 (행 35px + 머리글)
         tbl_height = (len(table) + 1) * 35 + 3

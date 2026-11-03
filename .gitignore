@@ -5,3 +5,4 @@ __pycache__/
 .vscode/
 interview/
 CLAUDE.md
+.claude/
