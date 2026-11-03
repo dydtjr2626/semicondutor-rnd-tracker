@@ -290,6 +290,7 @@ def main():
         tbl = (view.pivot_table(index="process", columns="year", values="rnd_ratio", aggfunc="mean")
                .reindex([p for p in PROCESS_ORDER if p in sel]).round(1))
         tbl.columns = [f"{y}년" for y in tbl.columns]
+        tbl.index.name = "공정"  # 맨 왼쪽 머리글이 영어(process)로 나오지 않게 한다
         st.dataframe(tbl.style.format("{:.1f}", na_rep="-"), **DF_KW)
         st.caption("공정별 기업 수가 1~3개라 평균은 참고용입니다 (단순 평균).")
 
