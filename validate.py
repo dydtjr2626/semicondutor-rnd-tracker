@@ -89,6 +89,21 @@ def run_checks(df, companies):
         ok = set(s["name"]) >= set(df["name"]) and s["rcept_no"].str.fullmatch(r"\d{14}").all()
         add(ok, "source_links.csv에 모든 기업의 14자리 접수번호가 있다")
 
+    # 7. R&D 분해표(rnd_breakdown.csv): 보고서 표에서 옮긴 총액이 rnd_manual.csv의 입력값과 같아야 한다
+    bp = os.path.join(BASE, "data", "manual", "rnd_breakdown.csv")
+    if os.path.exists(bp):
+        b = pd.read_csv(bp, dtype={"stock_code": str}, encoding="utf-8-sig")
+        m = b.merge(df[["stock_code", "year", "rnd_total_mil_won"]], on=["stock_code", "year"], how="left")
+        bad = m[(m["report_total_mil_won"] - m["rnd_total_mil_won"]).abs() >= 1]
+        add(bad.empty, "R&D 분해표의 총액이 수동 입력값과 같다", f"다른 행 {bad[['name', 'year']].values.tolist()}")
+        gross = m["report_total_mil_won"] + m["govt_grant_mil_won"].where(m["total_basis"] == "보조금 차감 후", 0)
+        # 자산화 값이 비어 있는 행(표에 구분이 없는 회사)은 비교에서 뺀다
+        cap = m["capitalized_mil_won"]
+        add((cap.dropna() <= gross[cap.notna()]).all() and (m["govt_grant_mil_won"] >= 0).all(),
+            "분해표의 자산화·보조금 값이 말이 된다(자산화 ≤ 총액, 보조금 ≥ 0)")
+        add(len(b) == len(set(b["stock_code"])) * len(EXPECTED_YEARS) and set(b["stock_code"]) <= want,
+            "분해표가 기업마다 3개 연도를 갖췄고 모두 분석 대상 기업이다", f"{len(set(b['stock_code']))}곳, {len(b)}행")
+
     # --- 경고: 틀린 건 아니지만 사람이 한 번 더 볼 것 ---
     for _, r in df[df["revenue_yoy"].abs() > YOY_ALERT].iterrows():
         warn("급격한 변화", f"{r['name']} {int(r['year'])}년 매출 YoY {r['revenue_yoy']:+.1f}%")

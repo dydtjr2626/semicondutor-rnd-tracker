@@ -57,6 +57,7 @@ DISCLAIMER = (
 # 데이터를 마지막으로 내려받아 정리한 달. 새로 수집해서 CSV를 다시 만들면 이 값도 함께 고친다.
 # (파일 수정 시각을 쓰지 않는 이유: 배포하면 파일 시각이 '배포한 날'로 바뀌어 기준일이 틀려 보인다)
 COLLECTED_AT = "2026-11"
+BREAKDOWN_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "manual", "rnd_breakdown.csv")
 SOURCE_LINKS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "processed", "source_links.csv")
 
 # 화면 위쪽 '지표 정의' 펼침 칸에 들어갈 글. 숫자는 쓰지 않고 정의만 적는다.
@@ -429,6 +430,22 @@ def capex_chart(cx, c):
     return style(fig, 460, c)
 
 
+def samsung_spike_note(q):
+    """삼성전자 마지막 분기 증가율이 100%를 넘으면, 기저효과가 아니라는 점과 이유를 모른다는 점을 CSV 값으로 알려 준다.
+
+    마지막 분기 값이 작년·재작성의 영향을 받는지는 비교 대상(작년 같은 분기, 2년 전 같은 분기)을 같이 보여 주는 것으로 대신한다.
+    """
+    col = "삼성전자 설비투자"
+    if col not in q.columns or len(q) < 9:
+        return ""
+    now, prev1, prev2 = q[col].iloc[-1], q[col].iloc[-5], q[col].iloc[-9]
+    if not (prev1 > 0 and prev2 > 0 and now / prev1 - 1 > 1):
+        return ""
+    return (f"삼성전자 {q['quarter'].iloc[-1]}의 증가율({now / prev1 - 1:+.0%})은 작년 수준이 낮아서만 생긴 값이 아닙니다. "
+            f"이 분기 투자({now / 1e12:.1f}조원)가 2년 전 같은 분기({prev2 / 1e12:.1f}조원)의 {now / prev2:.1f}배이고 분기보고서 누적값 기준입니다. "
+            "투자가 이 분기에 몰린 이유는 이 자료로 확인하지 못해 해석하지 않았습니다.")
+
+
 def quarterly_chart(q, c):
     """분기별로 '작년 같은 분기 대비' 증가율을 겹쳐 그린다 (계절 흐름을 없애려고 전분기가 아니라 작년 같은 분기와 비교).
 
@@ -457,8 +474,9 @@ def quarterly_chart(q, c):
         if clip:
             for lab, v in zip(labels, ys[col]):
                 if pd.notna(v) and v > hi:
-                    fig.add_annotation(x=lab, y=hi, text=f"▲ {v:+.0f}% (축 밖)", showarrow=False,
-                                       xanchor="left", yanchor="top", xshift=6, font=dict(size=12, color=c["ink"]))
+                    # 어느 분기의 값인지 글자에 적고, 점에서 오른쪽으로 조금 띄워 내려오는 선과 글자가 겹치지 않게 한다
+                    fig.add_annotation(x=lab, y=hi, text=f"{lab} ▲ {v:+.0f}% (축 밖)", showarrow=False,
+                                       xanchor="left", yanchor="top", xshift=34, font=dict(size=12, color=c["ink"]))
     fig.add_hline(y=0, line=dict(color=c["muted"], width=1))
     fig.update_xaxes(type="category", showgrid=False, tickangle=-45, range=[3.5, len(labels) - 0.5])  # 첫 4분기는 비교할 작년 값이 없다
     fig.update_yaxes(title_text="작년 같은 분기 대비 증가율 (%)", zeroline=False,
@@ -739,6 +757,8 @@ def render_customer_tab(c):
                 st.caption("보는 법: 파란 굵은 선(장비사 매출)이 고객사 투자 선과 같은 방향으로 오르내리는지 보세요. 모두 작년 같은 분기 대비 증가율입니다.")
                 show(quarterly_chart(q, c))
                 footnote([
+                    "증가율은 작년 같은 분기의 투자가 적었으면 크게 나옵니다(기저효과). 축을 넘는 큰 값은 실제 투자 폭증보다 작년 수준이 낮았던 영향이 클 수 있습니다.",
+                    samsung_spike_note(q),
                     "삼성전자는 전사 연결 기준이라 디스플레이·하만 등의 투자도 들어 있습니다.",
                     "설비투자는 현금흐름표 값이라 미지급금 변동·리스·무형자산 취득은 반영되지 않습니다.",
                     "장비사 5곳 중 파크시스템스는 계측 장비(원자현미경)라 팹 설비투자와의 연동이 약할 수 있습니다.",
@@ -752,6 +772,14 @@ def render_customer_tab(c):
                 for line in lag_cards(lag):
                     st.info(line)
                 st.caption(CI_CAPTION)
+                # 여러 조합을 한꺼번에 보면 우연히 '0을 벗어난' 값이 섞여 나오므로, 개수를 CSV에서 세어 항상 같이 알려 준다
+                n_combo = len(lag)
+                n_out = int(((lag["하한"] > 0) | (lag["상한"] < 0)).sum())
+                st.caption(
+                    f"이 차트는 {n_combo}개 조합(고객사 3 × 시차 5)을 한꺼번에 보여 줍니다. 95% 범위가 0을 벗어난 것이 {n_out}개 있지만, "
+                    f"아무 관계가 없어도 우연히 {n_combo * 0.05:.1f}개쯤은 나올 수 있고, 인접 분기가 겹쳐 범위가 실제보다 좁게 계산됩니다. "
+                    "그래서 값 하나를 발견으로 읽지 말고 전체 모양과 방향을 보세요."
+                )
                 show(lag_chart(lag, c))
                 if q is not None and not q.empty:
                     with st.expander("자세히: 음수 값은 왜 나왔나, 한 곳씩 빼 봐도 같은가"):
@@ -886,10 +914,71 @@ def footnote(lines):
         st.caption("**참고사항**\n\n" + "\n".join(f"- {x}" for x in lines))
 
 
+def definition_table(df, year):
+    """R&D를 어떻게 세느냐(정부보조금, 개발비 자산화)에 따라 비중이 얼마나 달라지는지 보여 주는 표.
+    사업보고서의 '연구개발비용' 표에서 손으로 옮긴 rnd_breakdown.csv와 master.csv의 매출을 합쳐 계산한다.
+    - 같은 기준 비중 = 정부보조금을 빼기 전 총액 ÷ 매출 (자산화한 개발비 포함)
+    - 자산화 제외 비중 = 같은 기준에서 개발비(무형자산)로 자산화한 부분을 뺀 비용 처리분 ÷ 매출
+    파일이 없거나 해당 연도가 없으면 None."""
+    try:
+        b = pd.read_csv(BREAKDOWN_PATH, dtype={"stock_code": str}, encoding="utf-8-sig")
+    except (OSError, ValueError):
+        return None, []
+    b = b[b["year"] == year].merge(df[["stock_code", "year", "revenue", "rnd_ratio", "ratio_source"]],
+                                   on=["stock_code", "year"], how="inner")
+    if b.empty:
+        return None, {}
+    # '계'가 보조금을 뺀 값이면 보조금을 더해 차감 전 총액으로 맞춘다
+    gross = b["report_total_mil_won"] + b["govt_grant_mil_won"].where(b["total_basis"] == "보조금 차감 후", 0)
+    rev = b["revenue"] / 1e6  # 원 -> 백만원
+    b["same"] = gross / rev * 100
+    b["expensed"] = (gross - b["capitalized_mil_won"]) / rev * 100  # 자산화 구분을 모르면 빈 값(NaN)
+    b["cap_share"] = b["capitalized_mil_won"] / gross * 100         # 총액 중 자산화한 몫(%). 매출과 무관하다
+    # R&D와 매출의 기준이 달라 공시 비율을 쓰는 회사(*)는 R&D÷연결 매출이 틀린 값이라 새 비중을 계산하지 않는다
+    b["star"] = b["ratio_source"].str.contains("공시")  # 정렬 전에 열로 저장해 둬야 정렬 뒤에도 행과 짝이 맞는다
+    b.loc[b["star"], ["same", "expensed"]] = float("nan")
+    b = b.sort_values("rnd_ratio", ascending=False).reset_index(drop=True)
+    out = pd.DataFrame({
+        "기업": b["name"] + b["star"].map({True: " *", False: ""}),
+        "화면 비중(%)": b["rnd_ratio"].round(1),
+        "총액 기준": b["total_basis"],
+        "정부보조금(억원)": (b["govt_grant_mil_won"] / 100).round(1),
+        "자산화 개발비(억원)": (b["capitalized_mil_won"] / 100).round(1),
+        "자산화 몫(%)": b["cap_share"].round(0),
+        "같은 기준 비중(%)": b["same"].round(1),
+        "자산화 제외 비중(%)": b["expensed"].round(1),
+    })
+    ok = b.dropna(subset=["same"])
+    gap = max((ok["same"] - ok["rnd_ratio"]).abs().max(), (ok["same"] - ok["expensed"]).abs().max())
+    # 정의를 맞추면 순서가 바뀌는지도 함께 계산해서 문장에 쓴다
+    same_order = list(ok.sort_values("rnd_ratio")["name"]) == list(ok.sort_values("same")["name"])
+    after = list(b.loc[b["total_basis"] == "보조금 차감 후", "name"])
+    cap = b[b["capitalized_mil_won"] > 0].sort_values("cap_share", ascending=False)
+    unknown = list(b.loc[b["capitalized_mil_won"].isna(), "name"])
+    return out, dict(gap=gap, same_order=same_order, n_ok=len(ok), n=len(b), after=after,
+                     cap=[(r["name"], r["cap_share"]) for _, r in cap.iterrows()], unknown=unknown)
+
+
 def render_company_tab(view, cur, ref, sel, year, flagged, note, c, ref_all=None):
     st.subheader(f"{year}년 매출 대비 R&D 투자 비중")
     peers = peer_ratios(year)
     show(bar_chart(cur, c, ref, peers))
+    # 공정 필터와 무관하게 3곳이 항상 보이도록 필터 전 전체 데이터(캐시됨)를 쓴다
+    deftbl, info = definition_table(load_data(os.path.getmtime(MASTER_PATH)), year)
+    if deftbl is not None:
+        with st.expander("R&D를 세는 방식이 다르면 비중이 얼마나 달라질까? (12개사 원문 표 확인)"):
+            st.dataframe(deftbl, hide_index=True, width="stretch", height=35 * (len(deftbl) + 1) + 3)
+            cap_txt = ", ".join(f"{n} {s:.0f}%" for n, s in info["cap"])
+            st.caption(
+                "보고서마다 '연구개발비용 계'를 세는 방법이 다릅니다. "
+                + (f"정부보조금을 뺀 값으로 적은 곳: {', '.join(info['after'])}. " if info["after"] else "")
+                + (f"개발비로 자산화한 금액이 총액에 포함된 곳(자산화 몫): {cap_txt}. " if cap_txt else "")
+                + (f"표에 자산화 구분이 없어 알 수 없는 곳: {', '.join(info['unknown'])}. " if info["unknown"] else "")
+                + f"같은 기준(보조금 차감 전, 자산화 포함)으로 맞춘 비중은 `*` 표시 기업을 뺀 {info['n_ok']}곳만 계산했고, "
+                f"화면 비중과 최대 {info['gap']:.1f}%p 다르며 "
+                + ("이 곳들의 순위는 그대로입니다. " if info["same_order"] else "이 곳들의 순위가 일부 바뀝니다. ")
+                + "`*` 기업은 R&D와 매출의 기준이 달라 새 비중을 계산하지 않았습니다. 원문 표는 데이터 탭 '출처' 열에서 확인할 수 있습니다."
+            )
     # 점선의 정체를 차트 바로 아래에서 알린다 (자세한 설명은 맨 아래 참고사항)
     st.caption("막대는 국내 소부장 12개사입니다. 점선과 위쪽 마커는 비교용 참고값입니다: 삼성전자·SK하이닉스(국내 고객사, 삼성전자는 가전·모바일 포함 전사 값), "
                "글로벌 장비사 4곳(대형 종합 장비사로 규모와 회계기준이 달라 직접 비교가 아님).")
@@ -954,6 +1043,19 @@ def tse_note():
         return base
 
 
+def yoy_alert(view, limit=100):
+    """매출·R&D가 전년보다 limit(%)를 넘게 변한 행을 찾아 안내 문장으로 만든다. 없으면 빈 문자열(footnote가 건너뛴다).
+    급변은 오류가 아닐 수도 있지만(한미반도체 매출 급증) 비중 해석을 흔들기 때문에 눈에 띄게 알린다."""
+    items = []
+    for col, label in (("revenue_yoy", "매출"), ("rnd_yoy", "R&D")):
+        for _, r in view[view[col].abs() > limit].sort_values(["name", "year"]).iterrows():
+            items.append(f"{r['name']} {int(r['year'])}년 {label} {r[col]:+.0f}%")
+    if not items:
+        return ""
+    return (f"전년 대비 ±{limit}%를 넘는 급변이 있습니다: " + ", ".join(items)
+            + ". 오류가 아니라 실제 변화일 수 있지만, 이런 해는 비중이 크게 흔들리니 원문(출처 열)에서 확인하세요.")
+
+
 def render_data_tab(view, flagged):
     st.subheader("데이터 표")
     if view.empty:
@@ -1006,6 +1108,7 @@ def render_data_tab(view, flagged):
         + "R&D는 지배회사 단독(별도) 기준인데 매출은 연결 기준인 경우 등이 있어 직접 계산한 값과 차이가 납니다.",
         tse_note().lstrip("- ").replace("**", ""),  # tse_note는 마크다운 굵은 글씨 표시가 들어 있어 참고사항에서는 뺀다
         NOTE_SAMPLE,
+        yoy_alert(view),
     ])
 
 
