@@ -48,10 +48,7 @@ COLORS = {
 }
 SYMBOLS = ["circle", "square", "diamond", "triangle-up", "pentagon"]
 
-DISCLAIMER = (
-    "이 대시보드는 공개된 공시 자료를 바탕으로 한 학습·분석용 자료이며, 특정 종목에 대한 투자 권유나 조언이 아닙니다. "
-    "수치에는 입력·해석상의 오류가 있을 수 있으니 투자 판단 전에 반드시 원문 공시(Open DART)를 확인하세요."
-)
+DISCLAIMER = "공시 자료를 바탕으로 한 학습·분석용 자료이며 투자 권유가 아닙니다. 수치는 원문 공시(Open DART)로 확인하세요."
 
 
 # 데이터를 마지막으로 내려받아 정리한 달. 새로 수집해서 CSV를 다시 만들면 이 값도 함께 고친다.
@@ -60,15 +57,6 @@ COLLECTED_AT = "2026-11"
 BREAKDOWN_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "manual", "rnd_breakdown.csv")
 SOURCE_LINKS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "processed", "source_links.csv")
 
-# 화면 위쪽 '지표 정의' 펼침 칸에 들어갈 글. 숫자는 쓰지 않고 정의만 적는다.
-DEFINITION_LINES = (
-    "**R&D 투자 비중** = 연구개발비 ÷ 매출액 × 100. 연구개발비는 사업보고서 '연구개발활동' 표의 합계, "
-    "매출액은 DART 재무제표(연결 우선, 없으면 별도) 값입니다.",
-    "개발비 자산화(비용 대신 자산으로 기록)와 정부보조금 처리 방식은 회사마다 다를 수 있어, 같은 비중이라도 정의가 완전히 같지는 않습니다.",
-    "**표시(\\*) 기업**은 보고서의 R&D 기준(예: 지배회사 단독)과 매출 기준(연결)이 달라 보고서에 적힌 공시 비율을 썼습니다. "
-    "이 기업들은 R&D 금액(억원)을 다른 기업과 맞대어 순위를 매기지 말고 비율만 참고하세요.",
-    "**평균**은 기업 수가 적어(공정별 1~3개) 단순 평균이며, 같은 '장비'라도 증착·식각, 패키징, 검사처럼 시장이 달라 하나의 평균이 대표성이 낮습니다. 중앙값을 함께 보세요.",
-)
 
 
 def theme_name():
@@ -202,11 +190,6 @@ def peer_ratios(year):
     return p[["name", "rnd_ratio"]]
 
 
-# 글로벌 장비사마다 마커 모양을 고정한다 (연도가 바뀌어도 같은 회사는 같은 모양)
-PEER_SYMBOL = {"ASML": "circle", "Applied Materials": "square", "Lam Research": "triangle-up", "KLA": "diamond"}
-PEER_ROWS = ["글로벌 장비사", " "]  # 막대 위에 비워 둔 두 칸. 가까운 값끼리는 번갈아 다른 칸에 둔다
-
-
 def bar_chart(d, c, ref=None, peers=None):
     d = d.sort_values("rnd_ratio")  # 가로 막대는 오름차순으로 넣어야 큰 값이 위로 간다
     fig = go.Figure()
@@ -227,48 +210,40 @@ def bar_chart(d, c, ref=None, peers=None):
             ),
         ))
     fig.update_layout(barmode="overlay", bargap=0.45)
-    has_peers = peers is not None and not peers.empty
-    # 글로벌 장비사 마커를 놓을 빈 칸 2개를 맨 위(배열의 끝)에 붙인다. 막대와 겹치지 않는다
-    extra = len(PEER_ROWS) if has_peers else 0
-    cats = list(d["label"]) + (PEER_ROWS[::-1] if has_peers else [])
-    fig.update_yaxes(categoryorder="array", categoryarray=cats, showgrid=False)
-    # x축 상한: 막대 최댓값과 고객사 기준선 중 큰 쪽 기준. 공정을 일부만 골라 막대가 짧아져도 기준선이 축 밖으로 나가지 않는다
-    right = d["rnd_ratio"].max()
-    has_ref = ref is not None and not ref.empty
-    if has_ref:
-        right = max(right, ref["rnd_ratio"].max())
-    if has_peers:
-        right = max(right, peers["rnd_ratio"].max())
+    fig.update_yaxes(categoryorder="array", categoryarray=list(d["label"]), showgrid=False)
+
+    # 기준선은 두 개뿐이다: 국내 고객사(삼성전자·SK하이닉스) 평균, 글로벌 장비사 4곳 평균.
+    # 이름은 선 위에 직접 적고, 개별 회사 값은 이름에 마우스를 올리면(hovertext) 보인다.
+    # 둘 다 12개사 평균·순위에는 넣지 않는다 (규모와 회계기준이 달라 비교용으로만 쓴다).
+    guides = []
+    for name, t in (("국내 고객사 평균", ref), ("글로벌 장비사 평균", peers)):
+        if t is None or t.empty:
+            continue
+        tip = "<br>".join(f"{r['name']}{' (전사)' if r['name'] == '삼성전자' else ''} {r['rnd_ratio']:.1f}%" for _, r in t.iterrows())
+        guides.append((name, float(t["rnd_ratio"].mean()), tip))
+
+    right = max([d["rnd_ratio"].max()] + [v for _, v, _ in guides])  # 기준선이 축 밖으로 나가지 않게
     fig.update_xaxes(title_text="매출 대비 R&D 투자 비중 (%)", range=[0, right * 1.15])
-    fig = style(fig, max(340, 40 * (len(d) + extra) + 110), c)
-    # 고객사(삼성전자·SK하이닉스)는 막대가 아니라 세로 점선 '기준선'으로 보여 준다.
-    # 평균·산점도 같은 소부장 12개사 통계가 섞이지 않게 하려는 것이다.
-    if has_ref:
-        fig.update_layout(legend=dict(x=1, xanchor="right"))  # 위쪽 이름표와 겹치지 않게 범례를 오른쪽으로
-        for i, (_, r) in enumerate(ref.sort_values("rnd_ratio").iterrows()):
-            # layer="below": 선을 막대·값 라벨 아래에 깔고, 가늘고 옅게 해서 라벨(6.4% 등)을 가리지 않게 한다
-            fig.add_vline(x=r["rnd_ratio"], layer="below",
-                          line=dict(color=c["muted"], width=1, dash="dot"), opacity=0.8)
-            # 값이 작은 기준선 이름은 선의 왼쪽, 큰 쪽은 오른쪽에 적어 두 이름표가 겹치지 않게 한다
-            fig.add_annotation(
-                x=r["rnd_ratio"], y=1, yref="paper", yanchor="bottom", showarrow=False,
-                xanchor="right" if i == 0 else "left",
-                # 삼성전자는 가전·모바일을 포함한 전사 값이라 이름표에 '전사'를 붙여 반도체만의 값으로 오해하지 않게 한다
-                text=f"{r['name']}{' (전사)' if r['name'] == '삼성전자' else ''} {r['rnd_ratio']:.1f}%", font=dict(size=12, color=c["ink"]),
-            )
-    # 글로벌 장비사는 값이 11~14%로 붙어 있어 선만으로는 구분이 안 된다.
-    # 그래서 (1) 가늘고 긴 점선 + (2) 맨 위 빈 칸에 '서로 다른 모양'의 마커를 놓고, 범례에 모양별 회사명과 값을 적는다.
-    if has_peers:
-        for i, (_, r) in enumerate(peers.sort_values("rnd_ratio").iterrows()):
-            fig.add_vline(x=r["rnd_ratio"], layer="below",
-                          line=dict(color=c["muted"], width=1, dash="dash"), opacity=0.7)
-            fig.add_trace(go.Scatter(
-                x=[r["rnd_ratio"]], y=[PEER_ROWS[i % 2]], mode="markers",
-                name=f"{r['name']} {r['rnd_ratio']:.1f}%",
-                marker=dict(symbol=PEER_SYMBOL.get(r["name"], "circle"), size=11, color=c["ink"],
-                            line=dict(color=c["surface"], width=1.5)),
-                hovertemplate=f"<b>{r['name']}</b><br>R&D 비중: {r['rnd_ratio']:.1f}%<extra></extra>",
-            ))
+    fig = style(fig, max(340, 40 * len(d) + 130), c)
+    if guides:
+        # y2: 눈에 보이지 않는 보조 세로축(0~1). 막대의 항목 이름 축과 섞이지 않게 호버용 점만 여기에 둔다
+        fig.update_layout(margin=dict(l=8, r=24, t=72, b=8), legend=dict(y=1.12),
+                          yaxis2=dict(overlaying="y", range=[0, 1], visible=False))
+    for i, (name, v, tip) in enumerate(sorted(guides, key=lambda g: g[1])):
+        # layer="below": 선을 막대·값 라벨 아래에 깔아 라벨(6.4% 등)을 가리지 않게 한다
+        fig.add_vline(x=v, layer="below", line=dict(color=c["muted"], width=1.5, dash="dot"))
+        # 점선(도형)은 마우스에 반응하지 않으므로, 선 위에 투명한 점을 촘촘히 깔아 선 어디에 올려도 툴팁이 뜨게 한다
+        fig.add_trace(go.Scatter(
+            x=[v] * 40, y=list(np.linspace(0, 1, 40)), yaxis="y2", mode="markers", showlegend=False,
+            marker=dict(size=14, color="rgba(0,0,0,0)"),
+            hovertemplate=f"<b>{name} {v:.1f}%</b><br>{tip}<extra></extra>",
+        ))
+        # 값이 작은 선의 이름은 왼쪽, 큰 선은 오른쪽에 적어 두 이름이 겹치지 않게 한다
+        fig.add_annotation(
+            x=v, y=1, yref="paper", yanchor="bottom", showarrow=False,
+            xanchor="right" if i == 0 else "left", text=f"{name} {v:.1f}%",
+            hovertext=tip, font=dict(size=12, color=c["ink"]),
+        )
     return fig
 
 
@@ -441,9 +416,8 @@ def samsung_spike_note(q):
     now, prev1, prev2 = q[col].iloc[-1], q[col].iloc[-5], q[col].iloc[-9]
     if not (prev1 > 0 and prev2 > 0 and now / prev1 - 1 > 1):
         return ""
-    return (f"삼성전자 {q['quarter'].iloc[-1]}의 증가율({now / prev1 - 1:+.0%})은 작년 수준이 낮아서만 생긴 값이 아닙니다. "
-            f"이 분기 투자({now / 1e12:.1f}조원)가 2년 전 같은 분기({prev2 / 1e12:.1f}조원)의 {now / prev2:.1f}배이고 분기보고서 누적값 기준입니다. "
-            "투자가 이 분기에 몰린 이유는 이 자료로 확인하지 못해 해석하지 않았습니다.")
+    return (f"삼성전자 {q['quarter'].iloc[-1]} 증가율({now / prev1 - 1:+.0%})은 이 분기 투자({now / 1e12:.1f}조원)가 "
+            f"2년 전 같은 분기의 {now / prev2:.1f}배라서 나온 값입니다. 이유는 확인하지 못했습니다.")
 
 
 def quarterly_chart(q, c):
@@ -621,12 +595,9 @@ def lag_cards(lag):
 
 def lag_warning(lag):
     return (
-        "분기 숫자가 서로 비슷하게 움직여서 실제 근거는 표시된 개수보다 적고, 그래서 95% 범위가 실제보다 좁게 나옵니다. "
-        "'순열p'는 한쪽 계열을 한 칸씩 밀어 짝을 일부러 어긋나게 해도 이만큼 센 상관이 나오는 비율입니다. "
-        "분기 숫자가 서로 닮은 점까지 반영한 더 보수적인 값입니다(표본이 적어 값이 거칩니다). "
-        f"또 {len(lag)}개 조합(고객사 {lag['고객사 투자'].nunique()}종 × 시차 {lag['시차(분기)'].nunique()}개)을 한꺼번에 봤기 때문에, 우연히 '눈에 띄는' 결과가 몇 개는 나올 수 있습니다. "
-        "분기보고서 사이에 계정이 재분류되어 일부 분기 값이 수% 흔들릴 수 있습니다. "
-        "장비사 매출에는 다른 고객사(중국·미국 등)도 포함되어 있습니다. **상관은 원인을 증명하지 않습니다.**"
+        "분기 숫자가 서로 닮아 95% 범위가 실제보다 좁게 나옵니다. "
+        f"{len(lag)}개 조합을 한꺼번에 봐서 우연히 눈에 띄는 값이 섞일 수 있습니다. "
+        "**상관은 원인을 증명하지 않습니다.**"
     )
 
 
@@ -642,18 +613,18 @@ def exposure_bullets(ex):
         f"- 상관이 가장 높은 곳은 {hi_row['기업']}({hi_row['SK하이닉스 상관']:+.2f})입니다. "
         f"공시 계약의 {hi_row['SK하이닉스 계약 비중(%)']:.0f}%가 SK하이닉스이고 상위 2개 고객이 매출의 {hi_row['상위 2개 고객 비중(%)']:.0f}%입니다. "
         f"가장 낮은 곳은 {lo_row['기업']}({lo_row['SK하이닉스 상관']:+.2f})이며 상위 1개 고객이 {lo_row['상위 1개 고객 비중(%)']:.0f}%뿐입니다. "
-        "이 극단 두 곳은 가설과 방향이 같습니다.\n"
-        "- 다만 가설을 확정하기는 어렵습니다. 한 고객에 기대는 정도와 상관이 맞지 않는 회사도 있습니다"
+        "두 곳 모두 가설과 방향이 같습니다.\n"
+        "- 다만 맞지 않는 회사도 있습니다"
         + (f"({', '.join(off)})" if off else "") + ". "
-        + (f"예를 들어 주성엔지니어링은 공시 계약의 {jus.iloc[0]['SK하이닉스 계약 비중(%)']:.0f}%가 SK하이닉스인데도 상관은 {jus.iloc[0]['SK하이닉스 상관']:+.2f}로 낮습니다. "
+        + (f"주성엔지니어링은 공시 계약의 {jus.iloc[0]['SK하이닉스 계약 비중(%)']:.0f}%가 SK하이닉스인데도 상관은 {jus.iloc[0]['SK하이닉스 상관']:+.2f}로 낮습니다. "
            if not jus.empty and pd.notna(jus.iloc[0]["SK하이닉스 계약 비중(%)"]) else "")
-        + "회사가 5곳뿐이라 통계로 검정할 수 없고, 회사별 95% 범위도 대부분 0을 포함합니다."
+        + "회사가 5곳뿐이라 확정하기 어렵습니다."
     )
 
 
 def exposure_warning():
     """계약 공시 요약(기간·건수)을 contracts.csv에서 읽어 문장을 만든다. 파일이 없거나 모양이 다르면 그 부분만 뺀다."""
-    notes, hanmi_note = "", ""
+    notes = ""
     ct = load_csv(CONTRACTS_PATH)
     if ct is not None and not ct.empty:
         try:
@@ -661,22 +632,13 @@ def exposure_warning():
             when = lambda n: f"{int(last[n][:4])}년 {int(last[n][5:7])}월"
             cnt = ct.groupby("name").size()
             notes = f"유진테크 {when('유진테크')}까지, 주성엔지니어링 {when('주성엔지니어링')}까지, 원익IPS {cnt['원익IPS']}건·파크시스템스 {cnt['파크시스템스']}건뿐"
-            hm = ct[ct["name"] == "한미반도체"]
-            hm_late = hm[hm["contract_date"] >= "2023-01-01"]
-            n21 = int((hm["contract_date"] < "2022-01-01").sum())
-            hanmi_note = (f"한미반도체 공시 {len(hm)}건 중 {n21}건은 2021년의 소액 계약이고, 2023년 이후는 건당 "
-                          f"약 {hm_late['amount_won'].min() / 1e8:,.0f}억원에서 {hm_late['amount_won'].max() / 1e8:,.0f}억원까지입니다. "
-                          "HBM 장비의 Micron·삼성전기 등 몫은 공시에 잘 드러나지 않아 SK하이닉스 몫이 실제보다 클 수 있습니다(추정). ")
         except (KeyError, ValueError, TypeError):
-            notes, hanmi_note = "", ""
+            notes = ""
     return (
-        "사업보고서의 주요 고객 표는 'A사, B사'로 이름이 가려져 있어, 상위 고객이 삼성전자인지 SK하이닉스인지는 알 수 없습니다. "
-        "주성엔지니어링 표의 'A사(반도체 장비)'는 고객의 업종이 아니라 사업부문(반도체 장비 부문) 구분일 가능성이 큽니다(추정). "
+        "사업보고서의 주요 고객은 'A사, B사'로 가려져 있어 삼성전자·SK하이닉스인지 알 수 없습니다. "
         "계약 공시는 큰 계약만 나오고 기간도 회사마다 다릅니다"
         + (f"({notes}). " if notes else ". ")
-        + "그래서 원익IPS·파크시스템스는 계약 비중을 계산하지 않았습니다. "
-        "주성엔지니어링의 '기타' 계약에는 LG디스플레이, EnCORE Group LLC(태양광 관련 해외 법인으로 추정) 등 반도체 외 계약이 섞여 있어 SK하이닉스 비중이 달라질 수 있습니다. "
-        + hanmi_note
+        + "그래서 원익IPS·파크시스템스는 계약 비중을 계산하지 않았습니다."
     )
 
 
@@ -689,29 +651,26 @@ def annual_text(cx):
         return yr.loc[y, col] if y in yr.index else float("nan")
 
     return (
-        f"증가율끼리의 상관계수 (표본 {len(both)}개, 참고용): "
+        f"증가율 상관계수 (표본 {len(both)}개, 참고용): "
         f"SK하이닉스 {corr['SK하이닉스']:+.2f} / 삼성전자 {corr['삼성전자']:+.2f}  \n"
         "- SK하이닉스가 투자를 크게 줄인 2023년에 장비사 매출도 줄었고, 크게 늘린 2024년에는 함께 늘었습니다. "
         f"다만 2022년(투자 {yv(2022, 'SK하이닉스 설비투자 YoY'):+.1f}%, 장비사 매출 {yv(2022, '장비사 매출 합계 YoY'):+.1f}%)과 "
         f"2025년(투자 {yv(2025, 'SK하이닉스 설비투자 YoY'):+.1f}%, 장비사 매출 {yv(2025, '장비사 매출 합계 YoY'):+.1f}%)에는 "
-        "투자가 크게 늘었는데 매출은 줄거나 거의 그대로여서, 항상 같이 움직이지는 않았습니다. "
-        "장비는 수주 → 출하 → 설치·검수(매출 인식)까지 보통 수개월 이상 걸려서, 투자를 집행한 시점과 매출이 잡히는 시점이 어긋날 수 있습니다.\n"
-        f"- 삼성전자는 {corr['삼성전자']:+.2f}로 강한 음의 값이지만 표본이 {len(both)}개라 우연일 수 있어 해석하지 않습니다. "
-        f"(2023년 투자 {yv(2023, '삼성전자 설비투자 YoY'):+.1f}%, 장비사 매출 {yv(2023, '장비사 매출 합계 YoY'):+.1f}%.) "
-        "삼성전자는 전사 기준이라 반도체 외 투자가 섞여 있는 영향도 있을 수 있습니다(추정)."
+        "투자가 늘었는데 매출은 줄거나 거의 그대로였습니다. 수주에서 매출 인식까지 수개월 걸려 시점이 어긋날 수 있습니다.\n"
+        f"- 삼성전자는 {corr['삼성전자']:+.2f}로 음의 값이지만 표본이 {len(both)}개라 해석하지 않습니다."
     )
 
 
 TERMS = (
-    "- **설비투자(CAPEX)**: 공장·장비를 새로 사는 데 쓴 돈(현금흐름표 '유형자산의 취득').\n"
+    "- **설비투자(CAPEX)**: 공장·장비를 사는 데 쓴 돈(현금흐름표 '유형자산의 취득').\n"
     "- **장비사 5곳**: 원익IPS, 주성엔지니어링, 유진테크, 한미반도체, 파크시스템스.\n"
-    "- **YoY(작년 같은 분기 대비 증가율)**: 같은 분기끼리 비교한 증가율입니다. 분기마다 계절 흐름이 있어서 바로 앞 분기와는 비교하지 않았습니다.\n"
-    "- **상관계수**: 두 증가율이 얼마나 같이 움직이는지를 -1에서 +1 사이 숫자로 나타낸 값입니다. +1에 가까우면 같이 오르내리고, 0이면 관계가 없고, -1에 가까우면 반대로 움직입니다.\n"
-    "- **95% 범위**: 상관계수가 이 범위 안쪽 어딘가일 것이라고 보는 구간입니다. 표본이 적을수록 넓어집니다. 범위가 0을 포함하면 '관계가 있다'고 말하기 어렵습니다.\n"
-    "- **시차**: 고객사가 투자한 뒤 몇 분기 지나서 장비사 매출과 비교했는지를 뜻합니다.\n"
-    "- **순열p**: 짝을 일부러 어긋나게 섞어도 이만큼 센 상관이 나올 확률입니다. 작을수록 우연일 가능성이 낮습니다."
+    "- **증가율(YoY)**: 작년 같은 분기와 비교한 증가율.\n"
+    "- **상관계수**: 두 증가율이 같이 움직이는 정도. +1 같이, 0 무관, -1 반대.\n"
+    "- **95% 범위**: 상관계수가 이 안에 있을 것이라고 보는 구간. 0을 포함하면 관계가 있다고 말하기 어렵습니다.\n"
+    "- **시차**: 고객사 투자 뒤 몇 분기 지나서 매출과 비교했는지.\n"
+    "- **순열p**: 짝을 섞어도 이만큼 센 상관이 나올 확률. 작을수록 우연일 가능성이 낮습니다."
 )
-CI_CAPTION = ("읽는 법: 점이 위쪽일수록 같이 움직입니다. 세로선(95% 범위)이 가운데 0선을 지나가면 '관계가 있다고 말하기 어렵다'는 뜻입니다.")
+CI_CAPTION = "점이 위쪽일수록 같이 움직입니다. 세로선(95% 범위)이 0선을 지나면 관계가 있다고 말하기 어렵습니다."
 
 
 # ---------- 화면: 고객사 투자 탭 ----------
@@ -733,7 +692,7 @@ def render_summary(q, lag):
              "함께 움직이는 경향이 보이지만 확정하기는 어렵습니다" if h0["하한"] > 0 else "뚜렷한 관계가 보이지 않았습니다")
     # 결론은 한 문장, 단서는 한 줄 캡션으로 나눈다 (순열p와 '가장 센 값'은 '시차 상관' 탭에 있어 여기서는 뺐다)
     st.markdown(f"**한 줄 요약**: SK하이닉스 설비투자와 장비사 매출은 같은 분기에 {trend}. (위 숫자는 모두 같은 분기 기준)")
-    st.caption("표본이 적고 상관은 원인을 증명하지 않습니다. '같이 움직인다' 정도로만 읽어 주세요. 자세한 한계는 각 탭 맨 아래 '참고사항'에 있습니다.")
+    st.caption("표본이 적어 '같이 움직인다' 정도로만 읽어 주세요.")
 
 
 def render_customer_tab(c):
@@ -746,52 +705,30 @@ def render_customer_tab(c):
     if q is not None and lag is not None and not q.empty and not lag.empty:
         with guard("요약:"):
             render_summary(q, lag)
-    with st.expander("용어 설명: 설비투자·상관계수·95% 범위·YoY"):
+    with st.expander("용어 설명"):
         st.markdown(TERMS)
 
-    t_flow, t_lag, t_firm, t_year = st.tabs(["분기 흐름", "시차 상관", "회사별", "연 단위(참고)"])
+    # 서브탭은 3개: 핵심(분기 흐름, 회사별)과 통계 세부(시차 상관, 연 단위)로 나눈다
+    t_flow, t_firm, t_more = st.tabs(["분기 흐름", "회사별", "통계 자세히"])
 
     with t_flow:
         if need(q, QUARTERLY_PATH, "python collect_quarterly.py"):
             with guard("quarterly.csv:"):
-                st.caption("보는 법: 파란 굵은 선(장비사 매출)이 고객사 투자 선과 같은 방향으로 오르내리는지 보세요. 모두 작년 같은 분기 대비 증가율입니다.")
+                st.caption("파란 굵은 선(장비사 매출)이 고객사 투자 선과 같은 방향으로 움직이는지 보세요. 모두 작년 같은 분기 대비 증가율입니다.")
                 show(quarterly_chart(q, c))
                 footnote([
-                    "증가율은 작년 같은 분기의 투자가 적었으면 크게 나옵니다(기저효과). 축을 넘는 큰 값은 실제 투자 폭증보다 작년 수준이 낮았던 영향이 클 수 있습니다.",
+                    "작년 수준이 낮았던 분기는 증가율이 크게 나옵니다(기저효과).",
                     samsung_spike_note(q),
-                    "삼성전자는 전사 연결 기준이라 디스플레이·하만 등의 투자도 들어 있습니다.",
-                    "설비투자는 현금흐름표 값이라 미지급금 변동·리스·무형자산 취득은 반영되지 않습니다.",
-                    "장비사 5곳 중 파크시스템스는 계측 장비(원자현미경)라 팹 설비투자와의 연동이 약할 수 있습니다.",
-                    f"기간은 {q['quarter'].iloc[0]}부터 {q['quarter'].iloc[-1]}까지 {len(q)}개 분기이고, 이 탭은 위쪽 공정·연도 필터와 무관합니다.",
+                    "삼성전자는 전사 연결 기준이라 디스플레이·하만 투자가 섞여 있습니다.",
+                    f"{q['quarter'].iloc[0]}부터 {q['quarter'].iloc[-1]}까지 {len(q)}개 분기이고, 왼쪽 필터와 무관합니다.",
                 ])
-
-    with t_lag:
-        if need(lag, LAG_PATH, "python analyze_quarterly.py"):
-            with guard("lag_corr.csv:"):
-                # 순서: 결론 3줄 -> 읽는 법 한 줄 -> 차트 -> (접힌) 자세히·한계. 글이 길어지는 부분은 모두 접는다
-                for line in lag_cards(lag):
-                    st.info(line)
-                st.caption(CI_CAPTION)
-                # 여러 조합을 한꺼번에 보면 우연히 '0을 벗어난' 값이 섞여 나오므로, 개수를 CSV에서 세어 항상 같이 알려 준다
-                n_combo = len(lag)
-                n_out = int(((lag["하한"] > 0) | (lag["상한"] < 0)).sum())
-                st.caption(
-                    f"이 차트는 {n_combo}개 조합(고객사 3 × 시차 5)을 한꺼번에 보여 줍니다. 95% 범위가 0을 벗어난 것이 {n_out}개 있지만, "
-                    f"아무 관계가 없어도 우연히 {n_combo * 0.05:.1f}개쯤은 나올 수 있고, 인접 분기가 겹쳐 범위가 실제보다 좁게 계산됩니다. "
-                    "그래서 값 하나를 발견으로 읽지 말고 전체 모양과 방향을 보세요."
-                )
-                show(lag_chart(lag, c))
-                if q is not None and not q.empty:
-                    with st.expander("자세히: 음수 값은 왜 나왔나, 한 곳씩 빼 봐도 같은가"):
-                        st.markdown(lag_bullets(lag, q))
-                footnote([lag_warning(lag)])
 
     with t_firm:
         if need(ex, EXPOSURE_PATH, "python analyze_exposure.py"):
             with guard("exposure.csv:"):
-                st.caption("확인하려는 가설: 한 고객에 많이 기대는 장비사일수록 그 고객의 투자와 매출이 같이 움직인다.")
-                st.markdown(exposure_bullets(ex))  # 결론을 차트 위로 올린다 (아래에 있으면 끝까지 내려야 보인다)
-                st.caption(CI_CAPTION + " 고객 비중은 2025년 사업보고서, 계약 비중은 '단일판매·공급계약' 공시 기준입니다.")
+                st.caption("가설: 한 고객에 많이 기대는 장비사일수록 그 고객의 투자와 매출이 같이 움직인다.")
+                st.markdown(exposure_bullets(ex))  # 결론을 차트 위에 둔다
+                st.caption(CI_CAPTION)
                 show(exposure_chart(ex, c))
                 cc = st.column_config
                 main_tbl = pd.DataFrame({
@@ -807,8 +744,8 @@ def render_customer_tab(c):
                     "상위1": cc.NumberColumn(format="%.0f", width=48), "상위2": cc.NumberColumn(format="%.0f", width=48),
                     "SK 상관": cc.NumberColumn(format="%+.2f", width=62), "삼성 상관": cc.NumberColumn(format="%+.2f", width=68),
                 })
-                st.caption("상위1·상위2 = 매출에서 상위 1·2개 고객이 차지하는 비중(%, 2025년 사업보고서). SK·삼성 상관 = 그 고객의 설비투자 증가율과 같은 분기 비교한 상관계수.")
-                with st.expander("상세 열 보기 (공시 계약 수, 계약 중 SK하이닉스 몫)"):
+                st.caption("상위1·2 = 매출 중 상위 1·2개 고객 비중(%, 2025년 사업보고서). 상관 = 그 고객 설비투자와의 같은 분기 상관계수.")
+                with st.expander("공시 계약 수, 계약 중 SK하이닉스 몫"):
                     detail = pd.DataFrame({
                         "기업": ex["기업"], "계약 수": ex["공시 계약 수"], "계약 중 SK(%)": ex["SK하이닉스 계약 비중(%)"],
                     })
@@ -817,10 +754,21 @@ def render_customer_tab(c):
                     })
                 footnote([exposure_warning()])
 
-    with t_year:
+    with t_more:
+        if need(lag, LAG_PATH, "python analyze_quarterly.py"):
+            with guard("lag_corr.csv:"):
+                st.markdown("**시차 상관**: 고객사가 투자한 뒤 몇 분기 만에 장비사 매출이 반응하는가")
+                for line in lag_cards(lag):
+                    st.info(line)
+                st.caption(CI_CAPTION)
+                show(lag_chart(lag, c))
+                if q is not None and not q.empty:
+                    with st.expander("음수 값은 왜 나왔나, 한 곳씩 빼 봐도 같은가"):
+                        st.markdown(lag_bullets(lag, q))
+                footnote([lag_warning(lag)])
         if need(cx, CAPEX_PATH, "python analyze_capex.py"):
             with guard("capex.csv:"):
-                with st.expander("참고: 연 단위 4개 점"):
+                with st.expander("연 단위로 보면 (표본 4개, 참고용)"):
                     show(capex_chart(cx, c))
                     st.markdown(annual_text(cx))
                     cc = st.column_config
@@ -830,22 +778,17 @@ def render_customer_tab(c):
                         "SK하이닉스 투자(조원)": cx["SK하이닉스 설비투자"] / 1e12,
                         "장비사 매출 합계(억원)": (cx["장비사 매출 합계"] / 1e8).round(0),  # 반올림해야 'localized'가 소수점 없이 쉼표만 붙인다
                         "장비사 매출 YoY(%)": cx["장비사 매출 합계 YoY"].map(lambda v: "-" if pd.isna(v) else f"{v:+.1f}"),  # 첫 해는 '-'
-
                     })
                     st.dataframe(tbl, hide_index=True, width="stretch", column_config={
                         "삼성전자 투자(조원)": cc.NumberColumn(format="%.1f"),
                         "SK하이닉스 투자(조원)": cc.NumberColumn(format="%.1f"),
                         "장비사 매출 합계(억원)": cc.NumberColumn(format="localized"),
                     })
-                footnote(["연 단위는 표본이 4개 해뿐이라 '관계가 있다'는 증거가 아니라 가설을 세우는 단계의 관찰입니다. "
-                          "장비사 매출에는 중국·미국 등 다른 고객사도 들어 있습니다."])
 
-    # 이 탭 전체에 해당하는 참고사항 (서브탭 아래, 맨 아래에 한 번만)
-    n_q = len(q) if q is not None else "20여"
+    # 이 탭 전체에 해당하는 참고사항 (맨 아래에 한 번만)
     footnote([
-        "고객사는 삼성전자·SK하이닉스 둘뿐이라, 장비사 매출 중 다른 고객(DB하이텍·해외 업체 등)에게서 나온 부분은 이 분석이 설명하지 못합니다.",
-        "설비투자는 현금흐름표 '유형자산의 취득'이라 리스·무형자산·미지급금 변동이 빠지고, 삼성전자는 전사 연결 기준입니다.",
-        f"분기 {n_q}개(증가율 비교에 쓰인 표본은 15개에서 19개)와 장비사 5곳뿐이라 가설을 세우는 수준이며, 상관은 원인을 증명하지 않습니다.",
+        "고객사는 삼성전자·SK하이닉스 둘뿐이라 장비사 매출 중 다른 고객에서 나온 부분은 설명하지 못합니다.",
+        "표본이 적어 가설을 세우는 수준이며, 상관은 원인을 증명하지 않습니다.",
     ])
 
 
@@ -891,20 +834,14 @@ def headline(df):
     eq, part, mat = d[d["group"] == "장비"], d[d["group"] == "부품·후공정"], d[d["group"] == "소재"]
     if eq.empty or mat.empty or part.empty:
         return
-    lo, hi = eq.loc[eq["rnd_ratio"].idxmin()], eq.loc[eq["rnd_ratio"].idxmax()]
-    # 결론 한 줄을 굵게 먼저, 단서와 보충은 작은 글씨로 아래에 둔다 (면접관이 30초 안에 한 줄만 읽어도 결론이 남도록)
     st.markdown(
-        f"**한눈에 보기 ({ly}년)**: 매출 대비 R&D 비중 단순평균은 장비 {len(eq)}곳 **{eq['rnd_ratio'].mean():.1f}%**, "
+        f"**한눈에 보기 ({ly}년, {len(d)}개사 단순평균)**: 장비 {len(eq)}곳 **{eq['rnd_ratio'].mean():.1f}%**, "
         f"소재 **{mat['rnd_ratio'].mean():.1f}%**, 부품·후공정 **{part['rnd_ratio'].mean():.1f}%**."  # 숫자 바로 뒤에 한글을 붙이면 굵게 표시가 깨져서 쉼표·공백으로 끊는다
     )
-    st.caption(
-        f"장비 중앙값은 {eq['rnd_ratio'].median():.1f}%이고, {lo['name']} {lo['rnd_ratio']:.1f}%에서 {hi['name']} {hi['rnd_ratio']:.1f}%까지 회사마다 편차가 큽니다. "
-        "비중이 높다고 좋은 것은 아니며, 매출이 급증하면 R&D 금액이 늘어도 비중은 낮아집니다. (12개사 전체 기준, 왼쪽 필터와 무관)"
-    )
 
 
-NOTE_SAMPLE = "12개사만 분석했고 공정별 기업 수가 1~3개라 평균은 단순 평균입니다. 업계 전체를 대표하지 않는 참고용입니다."
-NOTE_HIGH = "R&D 비중이 높다고 반드시 좋은 것은 아닙니다. 매출이 급증하면 R&D 금액이 늘어도 비중은 낮아질 수 있습니다."
+NOTE_SAMPLE = "12개사 표본이라 평균은 참고용입니다."
+NOTE_HIGH = "R&D 비중이 높다고 좋은 것은 아닙니다. 매출이 급증하면 비중은 오히려 낮아질 수 있습니다."
 
 
 def footnote(lines):
@@ -963,51 +900,44 @@ def render_company_tab(view, cur, ref, sel, year, flagged, note, c, ref_all=None
     st.subheader(f"{year}년 매출 대비 R&D 투자 비중")
     peers = peer_ratios(year)
     show(bar_chart(cur, c, ref, peers))
-    # 공정 필터와 무관하게 3곳이 항상 보이도록 필터 전 전체 데이터(캐시됨)를 쓴다
-    deftbl, info = definition_table(load_data(os.path.getmtime(MASTER_PATH)), year)
-    if deftbl is not None:
-        with st.expander("R&D를 세는 방식이 다르면 비중이 얼마나 달라질까? (12개사 원문 표 확인)"):
-            st.dataframe(deftbl, hide_index=True, width="stretch", height=35 * (len(deftbl) + 1) + 3)
-            cap_txt = ", ".join(f"{n} {s:.0f}%" for n, s in info["cap"])
-            st.caption(
-                "보고서마다 '연구개발비용 계'를 세는 방법이 다릅니다. "
-                + (f"정부보조금을 뺀 값으로 적은 곳: {', '.join(info['after'])}. " if info["after"] else "")
-                + (f"개발비로 자산화한 금액이 총액에 포함된 곳(자산화 몫): {cap_txt}. " if cap_txt else "")
-                + (f"표에 자산화 구분이 없어 알 수 없는 곳: {', '.join(info['unknown'])}. " if info["unknown"] else "")
-                + f"같은 기준(보조금 차감 전, 자산화 포함)으로 맞춘 비중은 `*` 표시 기업을 뺀 {info['n_ok']}곳만 계산했고, "
-                f"화면 비중과 최대 {info['gap']:.1f}%p 다르며 "
-                + ("이 곳들의 순위는 그대로입니다. " if info["same_order"] else "이 곳들의 순위가 일부 바뀝니다. ")
-                + "`*` 기업은 R&D와 매출의 기준이 달라 새 비중을 계산하지 않았습니다. 원문 표는 데이터 탭 '출처' 열에서 확인할 수 있습니다."
-            )
-    # 점선의 정체를 차트 바로 아래에서 알린다 (자세한 설명은 맨 아래 참고사항)
-    st.caption("막대는 국내 소부장 12개사입니다. 점선과 위쪽 마커는 비교용 참고값입니다: 삼성전자·SK하이닉스(국내 고객사, 삼성전자는 가전·모바일 포함 전사 값), "
-               "글로벌 장비사 4곳(대형 종합 장비사로 규모와 회계기준이 달라 직접 비교가 아님).")
-    fabs = fab_table(ref_all)
-    if fabs is not None:
-        with st.expander("고객이 될 수 있는 반도체 제조사는 둘뿐일까? 다른 팹과 R&D 비중 비교"):
-            st.dataframe(fabs, width="stretch", height=35 * (len(fabs) + 1) + 3)  # 줄 수만큼 높이를 줘서 안쪽 스크롤이 생기지 않게 한다
-            st.caption(
-                "차트의 고객사 기준선은 삼성전자·SK하이닉스 둘뿐인데, 국내 장비사의 국내 납품처가 사실상 이 둘에 몰려 있고 "
-                "설비투자 자료를 같은 방식으로 모을 수 있었기 때문입니다. 반도체 제조사가 둘뿐이라는 뜻은 아닙니다. "
-                "이 표는 DB하이텍(DART), Micron·Intel·TSMC(SEC)의 값을 옮긴 참고용이며, 평균·순위·분석에는 쓰지 않았습니다. "
-                "Micron은 회계연도가 8월, TSMC는 대만 신타이완달러(IFRS), Intel은 설계·파운드리를 모두 포함한 값이라 "
-                "직접 비교가 아닙니다. TSMC 2025년은 확인하지 못해 비웠습니다."
-            )
     st.markdown("**공정별 평균 R&D 비중 (%)**")
     tbl = (view.pivot_table(index="process", columns="year", values="rnd_ratio", aggfunc="mean")
            .reindex([p for p in PROCESS_ORDER if p in sel]).round(1))
     tbl.columns = [f"{y}년" for y in tbl.columns]
     tbl.index.name = "공정"  # 맨 왼쪽 머리글이 영어(process)로 나오지 않게 한다
     st.dataframe(tbl.style.format("{:.1f}", na_rep="-"), width="stretch")
+
+    # 공정 필터와 무관하게 12곳이 항상 보이도록 필터 전 전체 데이터(캐시됨)를 쓴다
+    deftbl, info = definition_table(load_data(os.path.getmtime(MASTER_PATH)), year)
+    if deftbl is not None:
+        with st.expander("R&D를 세는 방식이 다르면 비중이 얼마나 달라질까?"):
+            st.dataframe(deftbl, hide_index=True, width="stretch", height=35 * (len(deftbl) + 1) + 3)
+            cap_txt = ", ".join(f"{n} {s:.0f}%" for n, s in info["cap"])
+            st.caption(
+                (f"정부보조금을 뺀 값으로 적은 곳: {', '.join(info['after'])}. " if info["after"] else "")
+                + (f"개발비로 자산화한 금액이 총액에 포함된 곳(자산화 몫): {cap_txt}. " if cap_txt else "")
+                + (f"자산화 구분을 알 수 없는 곳: {', '.join(info['unknown'])}. " if info["unknown"] else "")
+                + f"같은 기준으로 맞춘 비중은 `*` 기업을 뺀 {info['n_ok']}곳만 계산했고, 화면 비중과 최대 {info['gap']:.1f}%p 다르며 "
+                + ("순위는 그대로입니다." if info["same_order"] else "순위가 일부 바뀝니다.")
+            )
+    # 점선에 쓴 개별 값과 다른 팹을 한 곳에 모은다 (차트에는 평균만 나온다)
+    fabs = fab_table(ref_all)
+    base = pd.concat([ref[["name", "rnd_ratio"]].assign(구분="국내 고객사"), peers.assign(구분="글로벌 장비사")])
+    if fabs is not None or not base.empty:
+        with st.expander("점선에 쓴 개별 값과 다른 팹"):
+            if not base.empty:
+                b = base.rename(columns={"name": "회사", "rnd_ratio": f"{year}년 R&D 비중(%)"})[["구분", "회사", f"{year}년 R&D 비중(%)"]]
+                st.dataframe(b.style.format({f"{year}년 R&D 비중(%)": "{:.1f}"}), hide_index=True, width="stretch",
+                             height=35 * (len(b) + 1) + 3)
+            if fabs is not None:
+                st.markdown("**다른 반도체 제조사(참고)**")
+                st.dataframe(fabs, width="stretch", height=35 * (len(fabs) + 1) + 3)  # 줄 수만큼 높이를 줘서 안쪽 스크롤이 생기지 않게 한다
+                st.caption("DB하이텍(DART), Micron·Intel·TSMC(SEC) 값이며 회계연도·통화·사업 범위가 달라 직접 비교가 아닙니다. TSMC 2025년은 확인하지 못해 비웠습니다.")
+
     # 한계는 탭 맨 아래에 회색 작은 글씨로 모은다 (참고사항 느낌)
     lines = []
-    if not ref.empty:
-        lines.append("점선은 고객사 기준선(삼성전자·SK하이닉스)입니다. 삼성전자는 스마트폰·TV·가전을 포함한 전사 연결 기준이라 반도체만의 비중이 아니고, "
-                     "R&D는 정부보조금 차감 전 총계입니다. SK하이닉스는 비용 처리분과 개발비 자산화분을 합한 값입니다. 12개사 평균·순위에는 포함하지 않았습니다.")
-    lines.append("고객사 기준선은 삼성전자·SK하이닉스 둘뿐입니다. 위 펼침 표의 DB하이텍·Micron·Intel·TSMC는 R&D 비중만 참고로 넣었습니다.")
-    if not peers.empty:
-        lines.append("글로벌 장비사(Applied Materials·Lam Research·KLA·ASML)는 SEC 공시 원문 값입니다. 미국 회계기준(US GAAP)이고 "
-                     "회계연도 종료월(Lam·KLA 6월, Applied 10월, ASML 12월)과 사업 규모가 달라 직접 비교가 아닌 참고용이며, 12개사 평균·순위에는 포함하지 않았습니다.")
+    if not ref.empty or not peers.empty:
+        lines.append("점선은 12개사 평균·순위에 넣지 않은 비교용입니다. 삼성전자는 가전·모바일을 포함한 전사 값이고, 글로벌 장비사는 SEC 공시(미국 회계기준, 회계연도·규모 차이)라 직접 비교가 아닙니다.")
     if flagged:
         lines.append(note)
     lines += [NOTE_SAMPLE, NOTE_HIGH]
@@ -1017,30 +947,15 @@ def render_company_tab(view, cur, ref, sel, year, flagged, note, c, ref_all=None
 def render_trend_tab(view, flagged, note, c):
     st.subheader("연도별 R&D 투자 비중 추이")
     show(trend_chart(view, c))
-    st.caption("색은 구분(장비·부품/후공정·소재), 마커 모양과 오른쪽 이름은 기업을 나타냅니다.")
-    footnote([note if flagged else "", NOTE_SAMPLE, NOTE_HIGH])
+    st.caption("색은 구분(장비·부품/후공정·소재), 마커 모양과 오른쪽 이름은 기업입니다.")
+    footnote([note if flagged else "", NOTE_SAMPLE])
 
 
 def render_scale_tab(cur, year, flagged, note, c):
     st.subheader(f"{year}년 매출 규모와 R&D 투자 강도")
     show(scatter_chart(cur, c))
-    st.caption("매출이 커도 R&D 비중은 낮을 수 있고, 매출이 작아도 높을 수 있습니다. "
-               "좁은 화면(모바일)에서는 이름표가 겹칠 수 있으니 점을 눌러 기업 이름을 확인하세요.")
+    st.caption("매출이 커도 R&D 비중은 낮을 수 있고, 작아도 높을 수 있습니다. 좁은 화면에서는 점을 눌러 이름을 확인하세요.")
     footnote([note if flagged else "", "R&D 정의(개발비 자산화 포함 여부 등)가 회사마다 다를 수 있습니다.", NOTE_SAMPLE])
-
-
-def tse_note():
-    """티에스이 R&D 증가율 설명. 숫자는 master.csv(필터와 무관)에서 읽는다."""
-    base = "- **티에스이 R&D**: 지배회사 단독 R&D 기준이라 자회사 R&D는 포함되지 않았고, 비중은 보고서의 공시 비율(*)을 사용했습니다."
-    try:
-        m = load_data(os.path.getmtime(MASTER_PATH))
-        t = m[m["name"] == "티에스이"].set_index("year")
-        y = int(t.index.max())
-        return (f"- **티에스이 {y}년 R&D 증가율({t.loc[y, 'rnd_yoy']:+.1f}%)**: 지배회사 단독 R&D가 "
-                f"{t.loc[y - 1, 'rnd_total_mil_won']:,.0f} → {t.loc[y, 'rnd_total_mil_won']:,.0f}백만원으로 실제로 늘어난 값입니다. "
-                f"금액 자체가 작아(약 {t.loc[y, 'rnd_total_mil_won'] / 100:,.0f}억원) 조금만 늘어도 증가율이 크게 보이며, 자회사 R&D는 포함되지 않았습니다.")
-    except Exception:
-        return base
 
 
 def yoy_alert(view, limit=100):
@@ -1093,21 +1008,15 @@ def render_data_tab(view, flagged):
         }
         # 표 높이를 행 수에 맞춰 키워서 행이 중간에 잘리거나 안쪽 스크롤이 생기지 않게 한다 (행 35px + 머리글)
         st.dataframe(table, hide_index=True, column_config=widths, height=(len(table) + 1) * 35 + 3, width="stretch")
-        st.caption("'산출' 열이 '공시비율'인 기업(*)은 'R&D 비중'이 표의 R&D ÷ 매출과 다르게 보일 수 있습니다. "
-                   "R&D와 매출의 기준(별도/연결)이 달라 보고서에 적힌 공시 비율을 그대로 썼기 때문입니다.")
+        st.caption("'공시비율'인 기업(*)은 R&D 비중이 표의 R&D ÷ 매출과 다르게 보일 수 있습니다(R&D와 매출의 기준이 달라 보고서 공시 비율을 썼습니다).")
         st.download_button("CSV 다운로드", table.to_csv(index=False).encode("utf-8-sig"),
                            file_name="semi_rnd_tracker.csv", mime="text/csv")
 
-    # 출처와 계산 방법은 표 바로 아래에 참고사항으로 둔다 (한계는 각 탭 맨 아래로 옮겼다)
+    # 출처와 계산 방법은 표 바로 아래에 참고사항으로 둔다
     footnote([
-        "출처: 금융감독원 Open DART. 매출액은 재무제표 API, R&D는 사업보고서 '연구개발활동' 표에서 확인했습니다. "
-        "표의 '출처' 열은 2025 사업보고서 원문이며, 3개년 값을 모두 이 한 권에서 읽었습니다(R&D는 사람이 보고서를 보고 입력).",
-        "R&D 비중 = 연구개발비용 ÷ 매출액 × 100. 직접 계산한 값이 보고서 공시 비율과 0.5%p 넘게 다르면 공시 비율을 사용했습니다. "
-        "(ISC처럼 보고서가 정수(%)로만 적은 경우는 더 정밀한 계산값을 사용했습니다.)",
-        (f"기준이 다른 기업(*): {', '.join(flagged)}. " if flagged else "")
-        + "R&D는 지배회사 단독(별도) 기준인데 매출은 연결 기준인 경우 등이 있어 직접 계산한 값과 차이가 납니다.",
-        tse_note().lstrip("- ").replace("**", ""),  # tse_note는 마크다운 굵은 글씨 표시가 들어 있어 참고사항에서는 뺀다
-        NOTE_SAMPLE,
+        "출처: 금융감독원 Open DART. 매출은 재무제표 API, R&D는 2025 사업보고서 '연구개발활동' 표(사람이 입력)이며, 3개년 값을 모두 이 한 권에서 읽었습니다.",
+        "R&D 비중 = 연구개발비용 ÷ 매출액 × 100. 직접 계산한 값이 보고서 공시 비율과 0.5%p 넘게 다르면 공시 비율을 썼습니다.",
+        (f"기준이 다른 기업(*): {', '.join(flagged)}. " if flagged else ""),
         yoy_alert(view),
     ])
 
@@ -1126,12 +1035,9 @@ def main():
     df = df[df["segment"] != "고객사"]
 
     st.title("반도체 소부장 R&D 투자 비중 트래커")
-    st.caption("국내 반도체 소부장 12개사의 매출 대비 R&D 투자 비중 · 출처: 금융감독원 Open DART 사업보고서")
-    st.caption(f"기준: {int(df['year'].max())}년 사업보고서(3개년 {int(df['year'].min())}~{int(df['year'].max())}) · 데이터 수집 {COLLECTED_AT}")
+    st.caption(f"국내 소부장 12개사 · {int(df['year'].min())}~{int(df['year'].max())}년 사업보고서 · 출처 Open DART · 수집 {COLLECTED_AT}")
     st.markdown(MOBILE_CSS, unsafe_allow_html=True)
     headline(df)
-    with st.expander("지표 정의와 읽는 법"):
-        st.markdown("\n".join(f"- {x}" for x in DEFINITION_LINES))
 
     # --- 필터 (공정·연도는 '기업 비교'·'추이'·'규모와 비중'·'데이터' 탭에 적용) ---
     with st.sidebar:
@@ -1140,12 +1046,12 @@ def main():
         sel = st.multiselect("공정", processes, default=processes)
         years = sorted(int(y) for y in df["year"].unique())
         year = st.selectbox("연도", years, index=len(years) - 1)
-        st.caption("연도는 '기업 비교'와 '규모와 비중'에 적용됩니다. 추이 차트는 전체 기간을 보여 줍니다. '고객사 투자' 탭은 필터와 무관합니다.")
+        st.caption("연도는 '기업 비교'와 '규모와 비중'에 적용됩니다.")
 
     view = df[df["process"].isin(sel)]  # 공정을 전부 해제하면 빈 표가 된다 (각 탭이 안내로 대신한다)
     cur = view[view["year"] == year]
     flagged = sorted(df.loc[df["basis_flag"], "name"].unique())
-    note = "\\* 표시: 보고서의 R&D와 매출 기준이 달라 보고서에 적힌 공시 비율을 사용한 기업 (R&D 금액 비교는 맞지 않을 수 있어 비율만 참고)"
+    note = "\\* 표시: R&D와 매출의 기준이 달라 보고서의 공시 비율을 쓴 기업(비율만 참고)"
     # 안내는 맨 위 경고 한 곳에만 크게 띄우고, 비어 있는 탭에는 눈에 덜 띄는 한 줄만 둔다 (같은 말이 5번 반복되지 않게)
     pick_prompt = "왼쪽 필터에서 공정을 하나 이상 선택하세요."
     empty_hint = "공정을 선택하면 이 탭에 내용이 나타납니다."
@@ -1155,8 +1061,9 @@ def main():
     else:
         render_kpis(cur, view[view["year"] == year - 1], year)
 
-    tab_company, tab_trend, tab_scale, tab_customer, tab_data = st.tabs(
-        ["기업 비교", "추이", "규모와 비중", "고객사 투자", "데이터"])
+    # 핵심 3개(기업 비교·추이·데이터)를 앞에, 추가 분석 2개를 뒤에 둔다
+    tab_company, tab_trend, tab_data, tab_scale, tab_customer = st.tabs(
+        ["기업 비교", "추이", "데이터", "규모와 비중", "고객사 투자"])
     with tab_company:
         if cur.empty:
             st.caption(empty_hint)
@@ -1167,6 +1074,8 @@ def main():
             st.caption(empty_hint)
         else:
             render_trend_tab(view, flagged, note, c)
+    with tab_data:
+        render_data_tab(view, flagged)
     with tab_scale:
         if cur.empty:
             st.caption(empty_hint)
@@ -1174,8 +1083,6 @@ def main():
             render_scale_tab(cur, year, flagged, note, c)
     with tab_customer:
         render_customer_tab(c)
-    with tab_data:
-        render_data_tab(view, flagged)
 
     # 모든 탭 아래에 항상 보이는 안내문 (투자 권유가 아님을 밝힌다)
     st.divider()
