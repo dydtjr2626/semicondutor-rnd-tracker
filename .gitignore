@@ -7,3 +7,4 @@ interview/
 CLAUDE.md
 .claude/
 summary_report_내가볼것.pdf
+.pytest_cache/

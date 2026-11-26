@@ -33,7 +33,13 @@ def load_corp_map():
         res = requests.get(
             "https://opendart.fss.or.kr/api/corpCode.xml",
             params={"crtfc_key": KEY},
+            timeout=60,  # 서버가 응답하지 않아도 무한정 기다리지 않게 한다
         )
+        res.raise_for_status()
+        # 키가 잘못되면 zip 대신 오류 메시지(JSON/XML)가 온다. 그 경우 알아보기 쉬운 안내를 내고 멈춘다.
+        if not zipfile.is_zipfile(io.BytesIO(res.content)):
+            raise SystemExit("corpCode.xml 을 받지 못했습니다 (zip 파일이 아님). API 키 또는 사용량 한도를 확인하세요: "
+                             + res.text[:200])
         with zipfile.ZipFile(io.BytesIO(res.content)) as z:
             with open(path, "wb") as f:
                 f.write(z.read("CORPCODE.xml"))

@@ -19,10 +19,11 @@ pd.set_option("display.width", 200)
 pd.set_option("display.max_columns", 30)
 
 
-def main():
-    fin = pd.read_csv(FIN_PATH, dtype={"stock_code": str}, encoding="utf-8-sig")
-    man = pd.read_csv(MAN_PATH, dtype={"stock_code": str}, encoding="utf-8-sig")
+def compute(fin, man):
+    """재무 데이터(fin)와 수동 R&D(man)를 받아 지표가 붙은 표를 돌려준다.
 
+    파일을 읽고 쓰는 일은 main()이 맡고, 계산만 이 함수에 모아 두었다.
+    그래야 tests/ 폴더의 테스트가 가짜 데이터를 넣어 규칙(예: 0.5%p 기준)을 바로 확인할 수 있다."""
     df = fin[["stock_code", "name", "year", "process", "segment", "fs_div", "revenue"]].merge(
         man[["stock_code", "year", "rnd_total_mil_won", "reported_ratio_pct", "source_note"]],
         on=["stock_code", "year"],
@@ -52,10 +53,19 @@ def main():
     df["rnd_yoy"] = df.groupby("stock_code")["rnd"].pct_change() * 100
     df["process_median"] = df.groupby(["process", "year"])["rnd_ratio"].transform("median")
     df["vs_process"] = df["rnd_ratio"] - df["process_median"]  # 공정 중앙값 대비 차이(%p)
+    # 공정·연도에 기업이 1개뿐이면 자기 자신이 중앙값이라 항상 0이 되어 의미가 없다 -> 빈 값으로 둔다
+    n_in_group = df.groupby(["process", "year"])["rnd_ratio"].transform("count")
+    df.loc[n_in_group <= 1, "vs_process"] = float("nan")
 
     for col in ["calc_ratio", "diff", "rnd_ratio", "revenue_yoy", "rnd_yoy", "process_median", "vs_process"]:
         df[col] = df[col].round(2)
+    return df
 
+
+def main():
+    fin = pd.read_csv(FIN_PATH, dtype={"stock_code": str}, encoding="utf-8-sig")
+    man = pd.read_csv(MAN_PATH, dtype={"stock_code": str}, encoding="utf-8-sig")
+    df = compute(fin, man)
     df.to_csv(OUT_PATH, index=False, encoding="utf-8-sig")
 
     # ---- 4. 요약 출력 ----
