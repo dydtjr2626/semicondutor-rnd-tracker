@@ -121,13 +121,26 @@ streamlit run app.py
 ├── analyze_quarterly.py     # 시차별 상관계수·신뢰구간·순열 p값 -> lag_corr.csv
 ├── collect_contracts.py     # 장비사 단일판매·공급계약 공시 수집 -> contracts.csv
 ├── analyze_exposure.py      # 장비사별 고객 집중도·상관 -> exposure.csv
+├── collect_source_links.py  # 기업별 2025 사업보고서 원문 링크 -> source_links.csv (캐시만 읽어 API 키 불필요)
+├── run_all.py               # 위 단계를 순서대로 한 번에 실행 (기본은 DART를 부르지 않는 단계만, --with-collect로 수집 포함)
+├── validate.py              # master.csv 자동 검사 (기업·연도 완비, 비중 재계산, 0.5%p 규칙 일관성 등)
 ├── app.py                   # Streamlit 대시보드 (5개 탭)
+├── tests/                   # pytest 테스트 (metrics 계산 규칙, validate가 잘못된 데이터를 잡는지)
+├── requirements.txt         # 실행에 필요한 패키지
+├── requirements-dev.txt     # 테스트용 패키지 (pytest)
 ├── insights.md              # 인사이트 메모
+├── CHANGELOG_DATA.md        # 데이터 변경 이력
 ├── project_overview.pdf     # 프로젝트 소개 (왜 했나, 무엇을 만들었나)
+├── LICENSE                  # MIT
 ├── screenshot/              # 대시보드 탭별 화면 캡처
 └── data/
-    ├── manual/
-    │   ├── rnd_manual.csv              # 사업보고서에서 직접 입력한 R&D
-    │   └── customer_concentration.csv  # 사업보고서 주요 고객 비중 (직접 입력)
-    └── processed/                      # financials / master / capex / quarterly / lag_corr / contracts / exposure .csv
+    ├── manual/              # 사업보고서·SEC 공시를 보고 직접 입력한 값
+    │   ├── rnd_manual.csv              # 12개사 R&D (분석에 쓰는 값)
+    │   ├── rnd_breakdown.csv           # R&D 정의 분해 (보조금 차감 전후, 개발비 자산화분)
+    │   ├── customer_concentration.csv  # 주요 고객 비중
+    │   ├── global_peers.csv            # 글로벌 장비사 4곳 매출·R&D (기업 비교 기준선)
+    │   └── customer_fabs.csv           # 다른 팹(DB하이텍·Micron·Intel·TSMC) 참고 표
+    └── processed/           # 코드가 만든 결과 (대시보드가 읽음)
+        └── financials / master / capex / quarterly / lag_corr / contracts / exposure / source_links .csv
 ```
+`.env`(API 키), `venv/`, `data/raw/`(DART 응답 캐시)는 `.gitignore`에 있어 저장소에 올라가지 않습니다.
