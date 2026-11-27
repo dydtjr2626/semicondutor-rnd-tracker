@@ -670,7 +670,10 @@ TERMS = (
     "- **시차**: 고객사 투자 뒤 몇 분기 지나서 매출과 비교했는지.\n"
     "- **순열p**: 짝을 섞어도 이만큼 센 상관이 나올 확률. 작을수록 우연일 가능성이 낮습니다."
 )
-CI_CAPTION = "점이 위쪽일수록 같이 움직입니다. 세로선(95% 범위)이 0선을 지나면 관계가 있다고 말하기 어렵습니다."
+# 고객사 투자 탭의 공통 참고사항. 서브탭마다 '참고사항'이 따로 두 번 나오지 않게, 해당하는 서브탭의 참고사항에 하나로 합쳐 넣는다
+CUSTOMER_NOTE_ONLY_TWO = "고객사는 삼성전자·SK하이닉스 둘뿐이라 장비사 매출 중 다른 고객에서 나온 부분은 설명하지 못합니다."
+CUSTOMER_NOTE_SMALL_N = "표본이 적어 가설을 세우는 수준이며, 상관은 원인을 증명하지 않습니다."
+CI_CAPTION ="점이 위쪽일수록 같이 움직입니다. 세로선(95% 범위)이 0선을 지나면 관계가 있다고 말하기 어렵습니다."
 
 
 # ---------- 화면: 고객사 투자 탭 ----------
@@ -721,6 +724,8 @@ def render_customer_tab(c):
                     samsung_spike_note(q),
                     "삼성전자는 전사 연결 기준이라 디스플레이·하만 투자가 섞여 있습니다.",
                     f"{q['quarter'].iloc[0]}부터 {q['quarter'].iloc[-1]}까지 {len(q)}개 분기이고, 왼쪽 필터와 무관합니다.",
+                    CUSTOMER_NOTE_ONLY_TWO,
+                    CUSTOMER_NOTE_SMALL_N,
                 ])
 
     with t_firm:
@@ -752,7 +757,7 @@ def render_customer_tab(c):
                     st.dataframe(detail, hide_index=True, width="stretch", column_config={
                         "계약 수": cc.NumberColumn(format="%d"), "계약 중 SK(%)": cc.NumberColumn(format="%.0f"),
                     })
-                footnote([exposure_warning()])
+                footnote([exposure_warning(), CUSTOMER_NOTE_ONLY_TWO])
 
     with t_more:
         if need(lag, LAG_PATH, "python analyze_quarterly.py"):
@@ -784,12 +789,6 @@ def render_customer_tab(c):
                         "SK하이닉스 투자(조원)": cc.NumberColumn(format="%.1f"),
                         "장비사 매출 합계(억원)": cc.NumberColumn(format="localized"),
                     })
-
-    # 이 탭 전체에 해당하는 참고사항 (맨 아래에 한 번만)
-    footnote([
-        "고객사는 삼성전자·SK하이닉스 둘뿐이라 장비사 매출 중 다른 고객에서 나온 부분은 설명하지 못합니다.",
-        "표본이 적어 가설을 세우는 수준이며, 상관은 원인을 증명하지 않습니다.",
-    ])
 
 
 # ---------- 화면: 나머지 탭 ----------
